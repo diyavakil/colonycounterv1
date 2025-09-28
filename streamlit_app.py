@@ -115,4 +115,112 @@ def finalize_image_for_download(img_base_cv2, manual_points_data, yolo_count):
     
     # Get text size and position
     text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
-    text_x = final_img.shape[1] - text_size[0] -
+    text_x = final_img.shape[1] - text_size[0] - 10 
+    text_y = final_img.shape[0] - 10 
+    
+    # Draw black background rectangle
+    cv2.rectangle(final_img, (text_x - 5, text_y - text_size[1] - 5), 
+                  (final_img.shape[1], final_img.shape[0]), (0, 0, 0), -1) 
+    
+    # Draw text (Green)
+    cv2.putText(final_img, text, (text_x, text_y), font, font_scale, (0, 255, 0), thickness)
+
+    return final_img, total_count
+
+
+# --- Main Application Logic ---
+
+# Load model early
+model = load_yolo_model("weights.pt")
+
+# upload img
+# THE UPLOAD BUTTON IS NOW GUARANTEED TO APPEAR
+uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
+
+if uploaded_file is not None:
+    # Check if a new file is uploaded
+    if st.session_state['uploaded_file_id'] is None or st.session_state['uploaded_file_id'] != uploaded_file.file_id:
+        file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+        img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        st.session_state['img_original_cv'] = img
+        st.session_state['uploaded_file_id'] = uploaded_file.file_id
+        run_initial_inference.clear() # Clear cache for new file
+        st.session_state['inference_run'] = False
+        
+    img_original = st.session_state['img_original_cv']
+
+    st.image(cv2.cvtColor(img_original, cv2.COLOR_BGR2RGB), caption="Original Image", use_column_width=True)
+    
+    # Button calls the callback function
+    if model is not None:
+        st.button(
+            "Run YOLO Inference", 
+            key='run_yolo', 
+            on_click=run_inference_callback, 
+            args=(img_original, model)
+        )
+    else:
+        st.warning("Cannot run inference. Please check if 'weights.pt' exists.")
+
+
+    # ---------------------------------------------
+    # --- Interactive Manual Correction Section ---
+    # ---------------------------------------------
+    if st.session_state['inference_run']:
+        
+        st.markdown("---")
+        st.subheader("Manual Colony Correction 🖱️")
+        st.info(f"YOLO detected **{st.session_state['yolo_count']}** colonies. Draw a small **red circle** on the image below to manually add missing colonies.")
+        
+        # 1. Use st_canvas to display the image and allow drawing
+        # Get dimensions from the PIL image
+        img_width = st.session_state['img_annotated_pil'].width
+        img_height = st.session_state['img_annotated_pil'].height
+        
+        canvas_result = st_canvas(
+            background_image=st.session_state['img_annotated_pil'],
+            drawing_mode="circle",
+            stroke_color="rgba(255, 0, 0, 1)", 
+            stroke_width=5, 
+            height=img_height,
+            width=img_width,
+            use_container_width=True, 
+            key="colony_canvas" 
+        )
+
+        # 2. Process the results for live count display
+        manual_points_data = canvas_result.json_data
+        manual_count = 0
+        
+        if manual_points_data and 'objects' in manual_points_data:
+            manual_count = len(manual_points_data['objects'])
+            st.session_state['canvas_json_data'] = manual_points_data
+
+        final_count = st.session_state['yolo_count'] + manual_count
+        
+        # --- Live Final Count Display ---
+        st.markdown("---")
+        st.success(f"**Live Total Colonies: {final_count}** (YOLO: {st.session_state['yolo_count']} + Manual: {manual_count})")
+
+        # 3. Download Logic
+        if st.button("Save and Download Final Annotated Image", key="download_btn"):
+            
+            final_image_to_save, final_count_check = finalize_image_for_download(
+                st.session_state['img_annotated_cv2'],
+                st.session_state['canvas_json_data'],
+                st.session_state['yolo_count']
+            )
+
+            # Save the final image to a file
+            save_path = "annotated_streamlit_final.jpg"
+            cv2.imwrite(save_path, final_image_to_save) 
+            
+            st.success(f"Annotated image saved with a count of {final_count_check}")
+            
+            with open(save_path, "rb") as file:
+                st.download_button(
+                    label="Download Annotated Image",
+                    data=file.read(),
+                    file_name="annotated_image_final.jpg",
+                    mime="image/jpeg"
+                )
