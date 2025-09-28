@@ -26,15 +26,15 @@ if uploaded_file is not None:
         results = model(img)
         img_annotated = img.copy()
         
-        # draw only the cute little green bboxes
+        # draw only the little green bboxes
         for box in results[0].boxes.xyxy:
             x1, y1, x2, y2 = map(int, box)
             cv2.rectangle(img_annotated, (x1, y1), (x2, y2), (0, 255, 0), 1)
        
-        # Count colonies
+        # count colonies
         colony_count = len(results[0].boxes.xyxy)
         
-        # Add count text in bottom-right corner
+        # add count in bottom-right corner
         text = f"Colonies: {colony_count}"
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 3 # text size
