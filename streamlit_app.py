@@ -1,4 +1,8 @@
 import streamlit as st
+from ultralytics import YOLO
+import cv2
+import numpy as np
+from PIL import Image
 
 # custom title/icon
 im = Image.open("App_Icon.jpg") # cute squid
@@ -6,13 +10,6 @@ st.set_page_config(page_title="Colony Counter v1", page_icon=im)
 
 # header
 st.title("🧫 Colony Counter v1")
-
-#app.py
-import streamlit as st
-from ultralytics import YOLO
-import cv2
-import numpy as np
-from PIL import Image
 
 model = YOLO("weights.pt") # load weights
 
