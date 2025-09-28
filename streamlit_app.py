@@ -37,6 +37,19 @@ if uploaded_file is not None:
         for box in results[0].boxes.xyxy:
             x1, y1, x2, y2 = map(int, box)
             cv2.rectangle(img_annotated, (x1, y1), (x2, y2), (0, 255, 0), 1)
+       
+        # Count colonies
+        colony_count = len(results[0].boxes.xyxy)
+        
+        # Add count text in bottom-right corner
+        text = f"Colonies: {colony_count}"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 1
+        thickness = 2
+        text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
+        text_x = img_annotated.shape[1] - text_size[0] - 10  # 10 px from right
+        text_y = img_annotated.shape[0] - 10  # 10 px from bottom
+        cv2.putText(img_annotated, text, (text_x, text_y), font, font_scale, (0, 255, 0), thickness)
         
         st.image(cv2.cvtColor(img_annotated, cv2.COLOR_BGR2RGB), caption="Annotated Image", use_column_width=True)
         
