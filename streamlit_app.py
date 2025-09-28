@@ -119,10 +119,14 @@ if uploaded_file is not None:
         #     key="canvas"
         # )
 
-        added = len(canvas_result.json_data["objects"]) if canvas_result.json_data and mode == "➕ Add" else 0 
-        manually_removed = removed + (len(canvas_result.json_data["objects"]) if canvas_result.json_data and mode == "➖ Remove" else 0)
+        # count corrections
+        added = len(canvas_result.json_data["objects"]) if (canvas_result.json_data and mode == "➕ Add") else 0 
+        removed_drawn = len(canvas_result.json_data["objects"]) if (canvas_result.json_data and mode == "➖ Remove") else 0 
         
-        corrected_count = colony_count + added - nanually_removed
+        # avoid conflict with "removed" number_input 
+        manually_removed = removed_manual 
         
+        corrected_count = colony_count + added - (manually_removed + removed_drawn) 
+
         st.success(f"✅ Corrected Colony Count: {corrected_count}")
 
