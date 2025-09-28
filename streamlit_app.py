@@ -1,12 +1,8 @@
 import streamlit as st
 
-# custom page title
-st.set_page_config(page_title="Colony Counter v1")
-
-# custom page icon
-from PIL import Image
+# custom title/icon
 im = Image.open("App_Icon.jpg") # cute squid
-st.set_page_config(page_icon=im)
+st.set_page_config(page_title="Colony Counter v1", page_icon=im)
 
 # header
 st.title("🧫 Colony Counter v1")
