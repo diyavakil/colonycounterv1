@@ -21,7 +21,8 @@ model = YOLO("weights.pt") # load weights
 # Sidebar for correction tools
 st.sidebar.header("Correction Tools")
 mode = st.sidebar.radio("Mode", ["None", "➕ Add", "➖ Remove"])
-removed = st.sidebar.number_input
+# removed = st.sidebar.number_input DELETE!!!
+# Removed manual number input; clicks on canvas will handle corrections
 
 # upload img
 uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
@@ -55,18 +56,18 @@ if uploaded_file is not None:
 
         st.subheader("📊 Annotated Image & Corrections")
 
-        # correction canvas directly on YOLO image 
-        canvas_result = st_canvas(
-            fill_color="rgba(0,255,0,0.3)" if mode == "➕ Add" else "rgba(255,0,0,0.3)", 
-            stroke_width=2,
-            stroke_color="green" if mode == "➕ Add" else "red", 
-            background_image=Image.fromarray(cv2.cvtColor(img_annotated, cv2.COLOR_BGR2RGB)), 
-            update_streamlit=True, 
-            height=img_annotated.shape[0], 
-            width=img_annotated.shape[1], 
-            drawing_mode="rect" if mode in ["➕ Add", "➖ Remove"] else "none", 
-            key="correction_canvas" 
-        )
+# correction canvas directly on YOLO image 
+canvas_result = st_canvas(
+    fill_color="rgba(0,255,0,0.7)" if mode == "➕ Add" else "rgba(255,0,0,0.7)", 
+    stroke_width=5,
+    stroke_color="green" if mode == "➕ Add" else "red", 
+    background_image=Image.fromarray(cv2.cvtColor(img_annotated, cv2.COLOR_BGR2RGB)), 
+    update_streamlit=True, 
+    height=img_annotated.shape[0], 
+    width=img_annotated.shape[1], 
+    drawing_mode="point" if mode in ["➕ Add", "➖ Remove"] else "none", 
+    key="correction_canvas" 
+)
         
         # # Add count text in bottom-right corner
         # text = f"Colonies: {colony_count}"
@@ -118,15 +119,13 @@ if uploaded_file is not None:
         #     drawing_mode="rect",
         #     key="canvas"
         # )
-
-        # count corrections
-        added = len(canvas_result.json_data["objects"]) if (canvas_result.json_data and mode == "➕ Add") else 0 
-        removed_drawn = len(canvas_result.json_data["objects"]) if (canvas_result.json_data and mode == "➖ Remove") else 0 
         
-        # avoid conflict with "removed" number_input 
-        manually_removed = removed_manual 
-        
-        corrected_count = colony_count + added - (manually_removed + removed_drawn) 
+# count corrections from clicks on canvas
+added = len(canvas_result.json_data["objects"]) if (canvas_result.json_data and mode == "➕ Add") else 0 
+removed_drawn = len(canvas_result.json_data["objects"]) if (canvas_result.json_data and mode == "➖ Remove") else 0 
 
-        st.success(f"✅ Corrected Colony Count: {corrected_count}")
+# corrected count purely from canvas
+corrected_count = colony_count + added - removed_drawn
+
+st.success(f"✅ Corrected Colony Count: {corrected_count}")
 
