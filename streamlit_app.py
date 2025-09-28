@@ -120,12 +120,15 @@ if uploaded_file is not None:
         #     key="canvas"
         # )
         
-# count corrections from clicks on canvas
-added = len(canvas_result.json_data["objects"]) if (canvas_result.json_data and mode == "➕ Add") else 0 
-removed_drawn = len(canvas_result.json_data["objects"]) if (canvas_result.json_data and mode == "➖ Remove") else 0 
-
-# corrected count purely from canvas
-corrected_count = colony_count + added - removed_drawn
-
-st.success(f"✅ Corrected Colony Count: {corrected_count}")
+        # count corrections from clicks on canvas safely
+        if canvas_result and canvas_result.json_data and "objects" in canvas_result.json_data:
+            added = len(canvas_result.json_data["objects"]) if mode == "➕ Add" else 0
+            removed_drawn = len(canvas_result.json_data["objects"]) if mode == "➖ Remove" else 0
+        else:
+            added = 0
+            removed_drawn = 0
+        
+        # corrected count purely from canvas
+        corrected_count = colony_count + added - removed_drawn
+        st.success(f"✅ Corrected Colony Count: {corrected_count}")
 
