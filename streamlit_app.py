@@ -26,8 +26,8 @@ if uploaded_file is not None:
         results = model(img)
         img_annotated = img.copy()
         
-        # draw only the little green bboxes
-         for box in results[0].boxes.xyxy:
+    # draw only the little green bboxes
+    for box in results[0].boxes.xyxy:
          x1, y1, x2, y2 = map(int, box)
          cv2.rectangle(img_annotated, (x1, y1), (x2, y2), (0, 255, 0), 1)
                 
