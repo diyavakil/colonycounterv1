@@ -42,8 +42,10 @@ if "colony_count" not in st.session_state:
     st.session_state["colony_count"] = 0
 if "last_correction_mode" not in st.session_state:
     st.session_state["last_correction_mode"] = "None"
+if "drawing_json" not in st.session_state: # CRITICAL: Store the full JSON drawing data for persistence
+    st.session_state["drawing_json"] = None
 if "last_correction_objects" not in st.session_state:
-    st.session_state["last_correction_objects"] = []
+    st.session_state["last_correction_objects"] = [] 
 
 
 # --- 3. SIDEBAR CONTROLS ---
@@ -74,6 +76,7 @@ if uploaded_file is not None:
     if img is not None:
         st.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), caption="Uploaded Image", use_column_width=True)
 
+        # Disable button after initial run to prevent state inconsistencies, but allow rerun when new image is uploaded
         if st.button("Run YOLO Inference", type="primary", disabled=st.session_state["img_annotated"] is not None):
             with st.spinner('Running detection on the image... this may take a moment.'):
                 # 4.1. Run detection
@@ -97,15 +100,16 @@ if uploaded_file is not None:
             else:
                 st.info("YOLO did not detect any colonies in this image.")
             
-            # 4.3. Save results to session state
+            # 4.3. Save results and reset drawing state
             st.session_state["img_annotated"] = img_annotated
             st.session_state["colony_count"] = colony_count
-            st.session_state["last_correction_objects"] = [] # Clear previous corrections
+            st.session_state["drawing_json"] = None # IMPORTANT: Clear drawing on new inference
+            st.session_state["last_correction_objects"] = []
     else:
         st.error("Could not decode the image file. Please try a different format.")
 
 
-# --- 5. CORRECTION CANVAS AND FINAL COUNT ---
+# --- 5. CORRECTION CANVAS AND FINAL COUNT (REWRITTEN FOR STABILITY) ---
 
 if st.session_state["img_annotated"] is not None:
     
@@ -120,7 +124,7 @@ if st.session_state["img_annotated"] is not None:
         # Determine canvas drawing parameters based on sidebar mode
         current_drawing_mode = "point" if st.session_state["last_correction_mode"] != "None" else "none"
         
-        # Color configuration
+        # Color configuration (determines the color of the point drawn on the next click)
         if st.session_state["last_correction_mode"] == "➕ Add Colony":
             stroke_color = "green"
             fill_color = "rgba(0, 255, 0, 0.9)"
@@ -135,42 +139,42 @@ if st.session_state["img_annotated"] is not None:
         # 5.2. Display Canvas
         st.markdown(f"**Current Correction Action:** {st.session_state['last_correction_mode']}")
         
+        # Pass the last saved JSON back into initial_drawing for persistence
         canvas_result = st_canvas(
             fill_color=fill_color,
             stroke_width=10,
             stroke_color=stroke_color,
             background_image=background_img_pil,
-            initial_drawing=None, # Important: Start fresh for simple point corrections
+            initial_drawing=st.session_state["drawing_json"], # CRITICAL FIX: Ensures drawings persist and stabilizes the component
             update_streamlit=True,
-            height=img_annotated.shape[0] * 0.5, # Reduce height for better display in Streamlit
-            width=img_annotated.shape[1] * 0.5,  # Reduce width for better display in Streamlit
+            height=img_annotated.shape[0] * 0.5, # Keep scaling for better display
+            width=img_annotated.shape[1] * 0.5,  
             drawing_mode=current_drawing_mode,
             key="correction_canvas"
         )
-
+        
         # 5.3. Calculate Corrections and Final Count
         
         added_count = 0
         removed_count = 0
         
-        # Check if new points were drawn
-        if canvas_result.json_data and "objects" in canvas_result.json_data:
-            
-            # Only process if the user actually drew something
-            points_drawn = [obj for obj in canvas_result.json_data["objects"] if obj.get("type") == "point"]
-            
-            if points_drawn:
-                # We save ALL drawn points (both add and remove) and count them based on color/mode.
-                st.session_state["last_correction_objects"] = points_drawn
+        # Only update the stored JSON if the canvas returned a valid result
+        if canvas_result.json_data is not None:
+             # This is the new drawing state, save it immediately
+            st.session_state["drawing_json"] = canvas_result.json_data
 
-        
-        # Recalculate based on all stored points (the user might switch modes)
-        for obj in st.session_state["last_correction_objects"]:
-            # The color is based on the mode the user was in when they clicked the point
-            if obj.get("stroke") == "green":
-                added_count += 1
-            elif obj.get("stroke") == "red":
-                removed_count += 1
+        # Use the stored JSON to calculate the counts
+        if st.session_state["drawing_json"] and "objects" in st.session_state["drawing_json"]:
+            
+            # Iterate through all objects ever drawn
+            for obj in st.session_state["drawing_json"]["objects"]:
+                # Check for "point" type drawings
+                if obj.get("type") == "point":
+                    # We check the stroke color saved in the object data to determine if it's an Add or Remove
+                    if obj.get("stroke") == "green":
+                        added_count += 1
+                    elif obj.get("stroke") == "red":
+                        removed_count += 1
         
         
         initial_count = st.session_state["colony_count"]
@@ -187,6 +191,11 @@ if st.session_state["img_annotated"] is not None:
         )
         
         st.info(f"Initial Model Count: {initial_count} | Additions: +{added_count} | Removals: -{removed_count}")
+        
+        # Add a clear button for the user to reset their manual corrections
+        if st.button("Clear All Corrections"):
+            st.session_state["drawing_json"] = None
+            st.rerun()
 
     else:
         st.warning("The annotated image data is corrupt or empty. Please re-upload your image and run inference again.")
