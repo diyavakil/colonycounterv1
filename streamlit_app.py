@@ -1,4 +1,5 @@
 import streamlit as st
+from streamlit_drawable_canvas import st_canvas
 
 # custom page title
 st.set_page_config(page_title="Colony Counter v1")
@@ -63,4 +64,30 @@ if uploaded_file is not None:
             file_name="annotated_image.jpg",
             mime="image/jpeg"
         )
+
+        # --- Human-in-the-loop correction ---
+        st.subheader("✏️ Review & Correct Colonies")
+
+        st.markdown(
+            "Draw green rectangles on colonies the model missed. "
+            "If the model added extra ones, enter how many to remove below."
+        )
+
+        canvas_result = st_canvas(
+            fill_color="rgba(0, 255, 0, 0.3)",
+            stroke_width=2,
+            stroke_color="green",
+            background_image=Image.open(save_path),
+            update_streamlit=True,
+            height=img_annotated.shape[0],
+            width=img_annotated.shape[1],
+            drawing_mode="rect",
+            key="canvas"
+        )
+
+        added = len(canvas_result.json_data["objects"]) if canvas_result.json_data else 0
+        removed = st.number_input("Remove false positives", min_value=0, max_value=colony_count, value=0)
+
+        corrected_count = colony_count + added - removed
+        st.success(f"✅ Corrected Colony Count: {corrected_count}")
 
