@@ -1,5 +1,5 @@
-import streamlit as st
 from streamlit_drawable_canvas import st_canvas
+import streamlit as st
 
 # custom page title
 st.set_page_config(page_title="Colony Counter v1")
