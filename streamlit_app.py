@@ -20,7 +20,7 @@ def load_yolo_model(path: str):
         st.error(f"Error loading model: {e}")
         st.stop()
 
-# Ensure your 'weights.pt' file is in the same directory as your app, or use a full path.
+# Ensure your 'weights.pt' file is accessible
 model = load_yolo_model("weights.pt")
 
 # --- Sidebar: Correction tools ---
@@ -59,6 +59,7 @@ if uploaded_file is not None:
 
                 # Count colonies
                 colony_count = len(results[0].boxes.xyxy)
+                st.info(f"YOLO Detected Colonies: {colony_count}") # Provide initial count
             else:
                 img_annotated = img.copy() # Use unannotated image if no results
                 colony_count = 0
@@ -70,12 +71,53 @@ if uploaded_file is not None:
     else:
         st.error("Could not decode the image file. Please check the file's integrity.")
 
-## Explanation of Key Fixes
+# --------------------------------------------------------------------------------------
+# --- Display annotated image and correction canvas (FINAL PART) ---
+# --------------------------------------------------------------------------------------
 
-### 1. Model Caching 🚀
+# Only display this section after inference has run and state variables are populated
+if "img_annotated" in st.session_state:
+    img_annotated = st.session_state["img_annotated"]
+    colony_count = st.session_state["colony_count"]
 
-```python
-@st.cache_resource
-def load_yolo_model(path: str):
-    # ... loading logic ...
-model = load_yolo_model("weights.pt")
+    st.subheader("📊 Annotated Image & Corrections")
+    st.write(f"**Initial YOLO Count:** {colony_count}")
+
+    # --- Canvas ---
+    # Convert OpenCV BGR image to PIL RGB for st_canvas background
+    background_img_pil = Image.fromarray(cv2.cvtColor(img_annotated, cv2.COLOR_BGR2RGB))
+    
+    # Ensure drawing_mode is 'point' for adding/removing, and 'none' otherwise
+    current_drawing_mode = "point" if mode in ["➕ Add", "➖ Remove"] else "none"
+
+    canvas_result = st_canvas(
+        fill_color="rgba(0,255,0,0.7)" if mode == "➕ Add" else "rgba(255,0,0,0.7)",
+        stroke_width=5,
+        stroke_color="green" if mode == "➕ Add" else "red",
+        background_image=background_img_pil,
+        update_streamlit=True,
+        height=img_annotated.shape[0],
+        width=img_annotated.shape[1],
+        drawing_mode=current_drawing_mode,
+        key="correction_canvas"
+    )
+
+    # --- Count corrections safely ---
+    added = 0
+    removed_drawn = 0
+
+    if canvas_result.json_data and "objects" in canvas_result.json_data:
+        # Filter objects to count only valid "points" drawn by the user
+        points_drawn = [obj for obj in canvas_result.json_data["objects"] if obj.get("type") == "point"]
+        
+        if mode == "➕ Add":
+            added = len(points_drawn)
+        elif mode == "➖ Remove":
+            # Points drawn in "Remove" mode are used to indicate removals
+            removed_drawn = len(points_drawn)
+
+    # --- Corrected count ---
+    # We ensure the count doesn't go below zero
+    corrected_count = max(0, colony_count + added - removed_drawn)
+
+    st.success(f"✅ **Corrected Colony Count:** {corrected_count}")
