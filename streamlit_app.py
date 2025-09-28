@@ -70,8 +70,6 @@ if uploaded_file is not None:
     else:
         st.error("Could not decode the image file. Please check the file's integrity.")
 
----
-
 ## Explanation of Key Fixes
 
 ### 1. Model Caching 🚀
