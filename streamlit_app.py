@@ -49,7 +49,7 @@ if "img_annotated" in st.session_state:
 
     st.subheader("📊 Annotated Image & Corrections")
 
-    # --- Clickable canvas ---
+    # --- Canvas ---
     canvas_result = st_canvas(
         fill_color="rgba(0,255,0,0.7)" if mode == "➕ Add" else "rgba(255,0,0,0.7)",
         stroke_width=5,
@@ -62,14 +62,14 @@ if "img_annotated" in st.session_state:
         key="correction_canvas"
     )
 
-    # --- Count clicks safely ---
-    if canvas_result and canvas_result.json_data and "objects" in canvas_result.json_data:
+    # --- Count corrections safely ---
+    if canvas_result.json_data and "objects" in canvas_result.json_data:
         added = len(canvas_result.json_data["objects"]) if mode == "➕ Add" else 0
         removed_drawn = len(canvas_result.json_data["objects"]) if mode == "➖ Remove" else 0
     else:
         added = 0
         removed_drawn = 0
 
-    # --- Corrected colony count ---
+    # --- Corrected count ---
     corrected_count = colony_count + added - removed_drawn
     st.success(f"✅ Corrected Colony Count: {corrected_count}")
