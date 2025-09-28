@@ -5,3 +5,4 @@ numpy
 Pillow
 matplotlib
 streamlit-drawable-canvas
+streamlit-image-coordinates
