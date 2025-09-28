@@ -44,8 +44,8 @@ if uploaded_file is not None:
         # Add count text in bottom-right corner
         text = f"Colonies: {colony_count}"
         font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 1
-        thickness = 2
+        font_scale = 3 # text size
+        thickness = 5 # text thickness
         text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
         text_x = img_annotated.shape[1] - text_size[0] - 10  # 10 px from right
         text_y = img_annotated.shape[0] - 10  # 10 px from bottom
