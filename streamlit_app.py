@@ -16,7 +16,7 @@ model = YOLO("weights.pt") # load weights
 # upload img
 uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
 if uploaded_file is not None:
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
     img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR) # convert uploaded file to OpenCV img
 
     st.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), caption="Original Image", use_column_width=True)
