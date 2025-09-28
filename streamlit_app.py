@@ -84,40 +84,46 @@ if "img_annotated" in st.session_state:
     st.write(f"**Initial YOLO Count:** {colony_count}")
 
     # --- Canvas ---
-    # Convert OpenCV BGR image to PIL RGB for st_canvas background
-    background_img_pil = Image.fromarray(cv2.cvtColor(img_annotated, cv2.COLOR_BGR2RGB))
     
-    # Ensure drawing_mode is 'point' for adding/removing, and 'none' otherwise
-    current_drawing_mode = "point" if mode in ["➕ Add", "➖ Remove"] else "none"
-
-    canvas_result = st_canvas(
-        fill_color="rgba(0,255,0,0.7)" if mode == "➕ Add" else "rgba(255,0,0,0.7)",
-        stroke_width=5,
-        stroke_color="green" if mode == "➕ Add" else "red",
-        background_image=background_img_pil,
-        update_streamlit=True,
-        height=img_annotated.shape[0],
-        width=img_annotated.shape[1],
-        drawing_mode=current_drawing_mode,
-        key="correction_canvas"
-    )
-
-    # --- Count corrections safely ---
-    added = 0
-    removed_drawn = 0
-
-    if canvas_result.json_data and "objects" in canvas_result.json_data:
-        # Filter objects to count only valid "points" drawn by the user
-        points_drawn = [obj for obj in canvas_result.json_data["objects"] if obj.get("type") == "point"]
+    # Check for valid image dimensions to prevent component errors
+    if img_annotated.shape[0] > 0 and img_annotated.shape[1] > 0:
+        # Convert OpenCV BGR image to PIL RGB for st_canvas background
+        background_img_pil = Image.fromarray(cv2.cvtColor(img_annotated, cv2.COLOR_BGR2RGB))
         
-        if mode == "➕ Add":
-            added = len(points_drawn)
-        elif mode == "➖ Remove":
-            # Points drawn in "Remove" mode are used to indicate removals
-            removed_drawn = len(points_drawn)
+        # Ensure drawing_mode is 'point' for adding/removing, and 'none' otherwise
+        current_drawing_mode = "point" if mode in ["➕ Add", "➖ Remove"] else "none"
 
-    # --- Corrected count ---
-    # We ensure the count doesn't go below zero
-    corrected_count = max(0, colony_count + added - removed_drawn)
+        # The canvas component is called ONLY if the image dimensions are valid
+        canvas_result = st_canvas(
+            fill_color="rgba(0,255,0,0.7)" if mode == "➕ Add" else "rgba(255,0,0,0.7)",
+            stroke_width=5,
+            stroke_color="green" if mode == "➕ Add" else "red",
+            background_image=background_img_pil,
+            update_streamlit=True,
+            height=img_annotated.shape[0],
+            width=img_annotated.shape[1],
+            drawing_mode=current_drawing_mode,
+            key="correction_canvas"
+        )
 
-    st.success(f"✅ **Corrected Colony Count:** {corrected_count}")
+        # --- Count corrections safely (moved inside the image check) ---
+        added = 0
+        removed_drawn = 0
+
+        if canvas_result.json_data and "objects" in canvas_result.json_data:
+            # Filter objects to count only valid "points" drawn by the user
+            points_drawn = [obj for obj in canvas_result.json_data["objects"] if obj.get("type") == "point"]
+            
+            if mode == "➕ Add":
+                added = len(points_drawn)
+            elif mode == "➖ Remove":
+                removed_drawn = len(points_drawn)
+
+        # --- Corrected count ---
+        corrected_count = max(0, colony_count + added - removed_drawn)
+        st.success(f"✅ **Corrected Colony Count:** {corrected_count}")
+    
+    else:
+        # Fallback if image has invalid dimensions (e.g., a file error)
+        st.error("Error: Image dimensions are invalid. Cannot display correction canvas.")
+        st.success(f"✅ **Corrected Colony Count:** {colony_count}")
