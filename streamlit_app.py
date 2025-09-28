@@ -4,126 +4,189 @@ from ultralytics import YOLO
 import cv2
 import numpy as np
 from PIL import Image
+import os # Used for checking if weights.pt exists
 
-# --- Page setup ---
-st.set_page_config(page_title="Colony Counter v1")
-st.title("🧫 Colony Counter v1")
+# --- 1. CONFIGURATION AND INITIALIZATION ---
 
-# --- Load YOLO model (CACHED) ---
+st.set_page_config(
+    page_title="Colony Counter v2",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+st.title("🧫 Automated Colony Counter v2")
+
+# --- 2. CACHED MODEL LOADING ---
+
 @st.cache_resource
 def load_yolo_model(path: str):
-    """Loads the YOLO model and caches it."""
+    """Loads the YOLO model only once for efficiency."""
+    if not os.path.exists(path):
+        st.error(f"Model file not found at: '{path}'")
+        st.error("Please ensure 'weights.pt' is in the root directory of your Streamlit app.")
+        st.stop()
     try:
+        # We assume the model is trained to detect 'colony'
         model = YOLO(path)
         return model
     except Exception as e:
-        st.error(f"Error loading model: {e}")
+        st.error(f"Error initializing YOLO model from '{path}': {e}")
         st.stop()
 
-# Ensure your 'weights.pt' file is accessible
+# Load the model
 model = load_yolo_model("weights.pt")
 
-# --- Sidebar: Correction tools ---
-st.sidebar.header("Correction Tools")
-mode = st.sidebar.radio("Mode", ["None", "➕ Add", "➖ Remove"])
+# Initialize session state variables if they don't exist
+if "img_annotated" not in st.session_state:
+    st.session_state["img_annotated"] = None
+if "colony_count" not in st.session_state:
+    st.session_state["colony_count"] = 0
+if "last_correction_mode" not in st.session_state:
+    st.session_state["last_correction_mode"] = "None"
+if "last_correction_objects" not in st.session_state:
+    st.session_state["last_correction_objects"] = []
 
-# --- Upload image ---
-uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
 
-# A placeholder for the image data to be used later
+# --- 3. SIDEBAR CONTROLS ---
+
+st.sidebar.header("User Correction Tools")
+st.sidebar.markdown("Use this section to manually adjust the count after inference.")
+mode = st.sidebar.radio(
+    "Correction Mode",
+    ["None", "➕ Add Colony", "➖ Remove Colony"],
+    index=0,
+    help="Select 'Add' to mark missed colonies (green dot), or 'Remove' to mark false positives (red dot)."
+)
+# Update the mode in session state to persist it across reruns
+st.session_state["last_correction_mode"] = mode
+
+
+# --- 4. FILE UPLOAD AND YOLO INFERENCE ---
+
+st.subheader("1. Upload Image & Run Detection")
+uploaded_file = st.file_uploader("Upload a petri dish image", type=["jpg", "jpeg", "png"])
+
 img = None
-
 if uploaded_file is not None:
-    # Convert uploaded file to OpenCV image
+    # Read file and decode into OpenCV format (BGR)
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
     img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-    # Check if image was successfully loaded
     if img is not None:
-        st.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), caption="Original Image", use_column_width=True)
+        st.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), caption="Uploaded Image", use_column_width=True)
 
-        # --- Run YOLO inference ---
-        if st.button("Run YOLO Inference"):
-            # The heavy computation is wrapped here
-            with st.spinner('Running inference...'):
+        if st.button("Run YOLO Inference", type="primary", disabled=st.session_state["img_annotated"] is not None):
+            with st.spinner('Running detection on the image... this may take a moment.'):
+                # 4.1. Run detection
                 results = model(img)
             
             img_annotated = img.copy()
+            colony_count = 0
 
-            # Draw green bounding boxes
-            # Check if results are valid and have boxes
+            # 4.2. Process and draw results
             if results and len(results) > 0 and results[0].boxes:
-                for box in results[0].boxes.xyxy:
-                    x1, y1, x2, y2 = map(int, box)
-                    cv2.rectangle(img_annotated, (x1, y1), (x2, y2), (0, 255, 0), 1)
-
-                # Count colonies
-                colony_count = len(results[0].boxes.xyxy)
-                st.info(f"YOLO Detected Colonies: {colony_count}") # Provide initial count
+                # Use CPU for drawing as it is faster outside the YOLO process
+                boxes = results[0].boxes.xyxy.cpu().numpy().astype(int)
+                
+                for box in boxes:
+                    x1, y1, x2, y2 = box
+                    # Draw a green bounding box (BGR format)
+                    cv2.rectangle(img_annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                
+                colony_count = len(boxes)
+                st.success(f"YOLO detection complete! Initial count: **{colony_count}**")
             else:
-                img_annotated = img.copy() # Use unannotated image if no results
-                colony_count = 0
-                st.info("YOLO did not detect any colonies.")
-
-            # Save to session state
+                st.info("YOLO did not detect any colonies in this image.")
+            
+            # 4.3. Save results to session state
             st.session_state["img_annotated"] = img_annotated
             st.session_state["colony_count"] = colony_count
+            st.session_state["last_correction_objects"] = [] # Clear previous corrections
     else:
-        st.error("Could not decode the image file. Please check the file's integrity.")
+        st.error("Could not decode the image file. Please try a different format.")
 
-# --------------------------------------------------------------------------------------
-# --- Display annotated image and correction canvas (FINAL PART) ---
-# --------------------------------------------------------------------------------------
 
-# Only display this section after inference has run and state variables are populated
-if "img_annotated" in st.session_state:
-    img_annotated = st.session_state["img_annotated"]
-    colony_count = st.session_state["colony_count"]
+# --- 5. CORRECTION CANVAS AND FINAL COUNT ---
 
-    st.subheader("📊 Annotated Image & Corrections")
-    st.write(f"**Initial YOLO Count:** {colony_count}")
-
-    # --- Canvas ---
+if st.session_state["img_annotated"] is not None:
     
-    # Check for valid image dimensions to prevent component errors
+    st.subheader("2. Review and Correct Predictions")
+
+    img_annotated = st.session_state["img_annotated"]
+    
+    # 5.1. Prepare image for canvas
     if img_annotated.shape[0] > 0 and img_annotated.shape[1] > 0:
-        # Convert OpenCV BGR image to PIL RGB for st_canvas background
         background_img_pil = Image.fromarray(cv2.cvtColor(img_annotated, cv2.COLOR_BGR2RGB))
         
-        # Ensure drawing_mode is 'point' for adding/removing, and 'none' otherwise
-        current_drawing_mode = "point" if mode in ["➕ Add", "➖ Remove"] else "none"
+        # Determine canvas drawing parameters based on sidebar mode
+        current_drawing_mode = "point" if st.session_state["last_correction_mode"] != "None" else "none"
+        
+        # Color configuration
+        if st.session_state["last_correction_mode"] == "➕ Add Colony":
+            stroke_color = "green"
+            fill_color = "rgba(0, 255, 0, 0.9)"
+        elif st.session_state["last_correction_mode"] == "➖ Remove Colony":
+            stroke_color = "red"
+            fill_color = "rgba(255, 0, 0, 0.9)"
+        else:
+            stroke_color = "gray"
+            fill_color = "rgba(100, 100, 100, 0.5)"
 
-        # The canvas component is called ONLY if the image dimensions are valid
+
+        # 5.2. Display Canvas
+        st.markdown(f"**Current Correction Action:** {st.session_state['last_correction_mode']}")
+        
         canvas_result = st_canvas(
-            fill_color="rgba(0,255,0,0.7)" if mode == "➕ Add" else "rgba(255,0,0,0.7)",
-            stroke_width=5,
-            stroke_color="green" if mode == "➕ Add" else "red",
+            fill_color=fill_color,
+            stroke_width=10,
+            stroke_color=stroke_color,
             background_image=background_img_pil,
+            initial_drawing=None, # Important: Start fresh for simple point corrections
             update_streamlit=True,
-            height=img_annotated.shape[0],
-            width=img_annotated.shape[1],
+            height=img_annotated.shape[0] * 0.5, # Reduce height for better display in Streamlit
+            width=img_annotated.shape[1] * 0.5,  # Reduce width for better display in Streamlit
             drawing_mode=current_drawing_mode,
             key="correction_canvas"
         )
 
-        # --- Count corrections safely (moved inside the image check) ---
-        added = 0
-        removed_drawn = 0
-
+        # 5.3. Calculate Corrections and Final Count
+        
+        added_count = 0
+        removed_count = 0
+        
+        # Check if new points were drawn
         if canvas_result.json_data and "objects" in canvas_result.json_data:
-            # Filter objects to count only valid "points" drawn by the user
+            
+            # Only process if the user actually drew something
             points_drawn = [obj for obj in canvas_result.json_data["objects"] if obj.get("type") == "point"]
             
-            if mode == "➕ Add":
-                added = len(points_drawn)
-            elif mode == "➖ Remove":
-                removed_drawn = len(points_drawn)
+            if points_drawn:
+                # We save ALL drawn points (both add and remove) and count them based on color/mode.
+                st.session_state["last_correction_objects"] = points_drawn
 
-        # --- Corrected count ---
-        corrected_count = max(0, colony_count + added - removed_drawn)
-        st.success(f"✅ **Corrected Colony Count:** {corrected_count}")
-    
+        
+        # Recalculate based on all stored points (the user might switch modes)
+        for obj in st.session_state["last_correction_objects"]:
+            # The color is based on the mode the user was in when they clicked the point
+            if obj.get("stroke") == "green":
+                added_count += 1
+            elif obj.get("stroke") == "red":
+                removed_count += 1
+        
+        
+        initial_count = st.session_state["colony_count"]
+        corrected_count = max(0, initial_count + added_count - removed_count)
+
+
+        # 5.4. Display Final Count
+        st.subheader("3. Final Result")
+        st.metric(
+            label="Corrected Colony Count", 
+            value=f"{corrected_count}",
+            delta=corrected_count - initial_count,
+            delta_color="normal"
+        )
+        
+        st.info(f"Initial Model Count: {initial_count} | Additions: +{added_count} | Removals: -{removed_count}")
+
     else:
-        # Fallback if image has invalid dimensions (e.g., a file error)
-        st.error("Error: Image dimensions are invalid. Cannot display correction canvas.")
-        st.success(f"✅ **Corrected Colony Count:** {colony_count}")
+        st.warning("The annotated image data is corrupt or empty. Please re-upload your image and run inference again.")
