@@ -26,22 +26,25 @@ if uploaded_file is not None:
         results = model(img)
         img_annotated = img.copy()
         
-    # draw only the little green bboxes
-    for box in results[0].boxes.xyxy:
-         x1, y1, x2, y2 = map(int, box)
-         cv2.rectangle(img_annotated, (x1, y1), (x2, y2), (0, 255, 0), 1)
-                
+        # FIX START: Converted tensor to iterable numpy array and fixed indentation
+        yolo_boxes = results[0].boxes.xyxy.cpu().numpy()
+        
+        # draw only the little green bboxes
+        for box in yolo_boxes:
+            x1, y1, x2, y2 = map(int, box)
+            cv2.rectangle(img_annotated, (x1, y1), (x2, y2), (0, 255, 0), 1)
+                        
         # count colonies
-        colony_count = len(results[0].boxes.xyxy)
-        
+        colony_count = len(yolo_boxes)
+        
         # add count in bottom-right corner
         text = f"Colonies: {colony_count}"
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 3 # text size
         thickness = 5 # text thickness
         text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
-        text_x = img_annotated.shape[1] - text_size[0] - 10  # 10 px from right
-        text_y = img_annotated.shape[0] - 10  # 10 px from bottom
+        text_x = img_annotated.shape[1] - text_size[0] - 10  # 10 px from right
+        text_y = img_annotated.shape[0] - 10  # 10 px from bottom
         cv2.putText(img_annotated, text, (text_x, text_y), font, font_scale, (0, 255, 0), thickness)
         
         st.image(cv2.cvtColor(img_annotated, cv2.COLOR_BGR2RGB), caption="Annotated Image", use_column_width=True)
