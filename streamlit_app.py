@@ -3,9 +3,37 @@ from ultralytics import YOLO
 import cv2
 import numpy as np
 from PIL import Image
-from streamlit_image_coordinates import streamlit_image_coordinates 
+from streamlit_image_coordinates import streamlit_image_coordinates
+
+# --- Streamlit Caching ---
+
+# 1. Cache the YOLO model: This prevents reloading the weights.pt file on every single interaction.
+@st.cache_resource
+def load_yolo_model(path):
+    """Loads the YOLO model and caches it."""
+    return YOLO(path)
+
+# 2. Cache the initial YOLO inference results: This prevents re-running the heavy inference
+# and initial drawing on every click for manual correction.
+@st.cache_data
+def run_initial_inference(img, model):
+    """Runs YOLO inference and returns the initial annotated image and count."""
+    results = model(img)
+    img_annotated = img.copy()
+    
+    # Draw YOLO bboxes (green)
+    yolo_bboxes = results[0].boxes.xyxy.cpu().numpy()
+    for box in yolo_bboxes:
+        x1, y1, x2, y2 = map(int, box)
+        cv2.rectangle(img_annotated, (x1, y1), (x2, y2), (0, 255, 0), 1)
+
+    yolo_count = len(yolo_bboxes)
+    
+    return img_annotated, yolo_count
+
 
 # --- Streamlit Session State Initialization ---
+
 # Initialize necessary state variables right at the start
 if 'inference_run' not in st.session_state:
     st.session_state['inference_run'] = False
@@ -20,6 +48,7 @@ if 'img_original_cv' not in st.session_state:
 if 'uploaded_file_id' not in st.session_state:
     st.session_state['uploaded_file_id'] = None
 
+
 # custom title/icon
 im = Image.open("App_Icon.jpg") # cute squid
 st.set_page_config(page_title="Colony Counter v1", page_icon=im)
@@ -27,35 +56,35 @@ st.set_page_config(page_title="Colony Counter v1", page_icon=im)
 # header
 st.title("🧫 Colony Counter v1")
 
-model = YOLO("weights.pt") # load weights
+# Load model (using cache)
+model = load_yolo_model("weights.pt")
 
 
 # --- Callback Function for Inference Button ---
-def run_inference_callback(img):
-    """Callback function to run YOLO and store initial results in session state."""
+def run_inference_callback(img, model):
+    """
+    Handles the heavy lifting (YOLO inference) and stores results in state.
     
-    # Run YOLO and get results
-    results = model(img)
-    img_annotated = img.copy()
+    This function itself doesn't need to be cached because the heavy work it calls
+    (run_initial_inference) is cached.
+    """
     
-    # Draw YOLO bboxes
-    yolo_bboxes = results[0].boxes.xyxy.cpu().numpy()
-    for box in yolo_bboxes:
-        x1, y1, x2, y2 = map(int, box)
-        cv2.rectangle(img_annotated, (x1, y1), (x2, y2), (0, 255, 0), 1)
-
+    # Run the initial inference using the cached function
+    img_annotated, yolo_count = run_initial_inference(img, model)
+    
     # Store results in session state
-    st.session_state['yolo_count'] = len(yolo_bboxes)
+    st.session_state['yolo_count'] = yolo_count
     st.session_state['img_annotated'] = img_annotated
     st.session_state['manual_points'] = [] # Reset manual points on new inference
     st.session_state['inference_run'] = True
 
 # --- Function to Draw the Final Image (In-Memory) ---
-@st.cache_data(show_spinner=False)
+# Note: This function doesn't need to be cached, as the logic inside is fast, 
+# and the whole script rerunning handles the display update.
 def draw_final_image_with_manual_points(img_base, manual_points, yolo_count):
-    """Draws the final annotated image including manual points and count."""
+    """Draws the final annotated image including manual points and count (FAST)."""
     
-    # Start with the base image that has YOLO bboxes
+    # Start with the base image that has YOLO bboxes (from session state)
     final_img = img_base.copy()
     
     # Draw manual points (red dots)
@@ -84,7 +113,7 @@ def draw_final_image_with_manual_points(img_base, manual_points, yolo_count):
     # Draw text (Green)
     cv2.putText(final_img, text, (text_x, text_y), font, font_scale, (0, 255, 0), thickness)
 
-    # Convert to RGB for Streamlit display and return the count
+    # Convert to RGB for Streamlit display
     return cv2.cvtColor(final_img, cv2.COLOR_BGR2RGB), final_img, total_count
 
 
@@ -100,7 +129,9 @@ if uploaded_file is not None:
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
         st.session_state['img_original_cv'] = img
         st.session_state['uploaded_file_id'] = uploaded_file.file_id
-        st.session_state['inference_run'] = False # Reset inference on new image
+        # Clear the cache for the inference function when a new file is uploaded
+        run_initial_inference.clear() 
+        st.session_state['inference_run'] = False
         
     img_original = st.session_state['img_original_cv']
 
@@ -111,10 +142,12 @@ if uploaded_file is not None:
         "Run YOLO Inference", 
         key='run_yolo', 
         on_click=run_inference_callback, 
-        args=(img_original,)
+        args=(img_original, model)
     )
 
+    # ---------------------------------------------
     # --- Interactive Manual Correction Section ---
+    # ---------------------------------------------
     if st.session_state['inference_run']:
         
         st.markdown("---")
@@ -122,7 +155,6 @@ if uploaded_file is not None:
         st.info(f"YOLO detected **{st.session_state['yolo_count']}** colonies. Click on the image below to manually add missing colonies.")
 
         # 1. Get the current state of the annotated image
-        # This returns the RGB image for the web, the BGR image for saving, and the final count.
         final_img_rgb, final_img_bgr, final_count = draw_final_image_with_manual_points(
             st.session_state['img_annotated'],
             st.session_state['manual_points'],
@@ -144,27 +176,4 @@ if uploaded_file is not None:
             new_point = (x_coord, y_coord)
             
             # Add to the list in session state
-            if new_point not in st.session_state['manual_points']:
-                st.session_state['manual_points'].append(new_point)
-                
-                # Force rerun to redraw the image with the new point and count
-                st.experimental_rerun()
-                
-        # --- Final Count and Download ---
-        st.markdown("---")
-        st.success(f"Final Total Colonies: **{final_count}**")
-
-        # Save and Download option, only once after the clicking is done
-        save_path = "annotated_streamlit_final.jpg"
-        
-        # Use a button to trigger the save/download *after* the user is finished clicking
-        if st.button("Save and Download Annotated Image", key="download_btn"):
-            cv2.imwrite(save_path, final_img_bgr) 
-            
-            with open(save_path, "rb") as file:
-                st.download_button(
-                    label="Download Annotated Image",
-                    data=file.read(),
-                    file_name="annotated_image_final.jpg",
-                    mime="image/jpeg"
-                )
+            if new_point not in st.
