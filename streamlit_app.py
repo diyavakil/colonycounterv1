@@ -56,18 +56,18 @@ if uploaded_file is not None:
 
         st.subheader("📊 Annotated Image & Corrections")
 
-# correction canvas directly on YOLO image 
-canvas_result = st_canvas(
-    fill_color="rgba(0,255,0,0.7)" if mode == "➕ Add" else "rgba(255,0,0,0.7)", 
-    stroke_width=5,
-    stroke_color="green" if mode == "➕ Add" else "red", 
-    background_image=Image.fromarray(cv2.cvtColor(img_annotated, cv2.COLOR_BGR2RGB)), 
-    update_streamlit=True, 
-    height=img_annotated.shape[0], 
-    width=img_annotated.shape[1], 
-    drawing_mode="point" if mode in ["➕ Add", "➖ Remove"] else "none", 
-    key="correction_canvas" 
-)
+        # correction canvas directly on YOLO image 
+        canvas_result = st_canvas(
+            fill_color="rgba(0,255,0,0.7)" if mode == "➕ Add" else "rgba(255,0,0,0.7)", 
+            stroke_width=5,
+            stroke_color="green" if mode == "➕ Add" else "red", 
+            background_image=Image.fromarray(cv2.cvtColor(img_annotated, cv2.COLOR_BGR2RGB)), 
+            update_streamlit=True, 
+            height=img_annotated.shape[0], 
+            width=img_annotated.shape[1], 
+            drawing_mode="point" if mode in ["➕ Add", "➖ Remove"] else "none", 
+            key="correction_canvas" 
+        )
         
         # # Add count text in bottom-right corner
         # text = f"Colonies: {colony_count}"
