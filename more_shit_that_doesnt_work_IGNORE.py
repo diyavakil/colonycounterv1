@@ -9,11 +9,11 @@ import os # Used for checking if weights.pt exists
 # --- 1. CONFIGURATION AND INITIALIZATION ---
 
 st.set_page_config(
-    page_title="Colony Counter v2",
+    page_title="Colony Counter v1",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-st.title("🧫 Automated Colony Counter v2")
+st.title("🧫 Automated Colony Counter v1")
 
 # --- 2. CACHED MODEL LOADING ---
 
