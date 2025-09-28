@@ -41,6 +41,10 @@ if uploaded_file is not None:
        
         # Count colonies
         colony_count = len(results[0].boxes.xyxy)
+
+            # save results into session state
+        st.session_state["img_annotated"] = img_annotated
+        st.session_state["colony_count"] = colony_count
         
         # Add count text in bottom-right corner
         text = f"Colonies: {colony_count}"
@@ -64,6 +68,14 @@ if uploaded_file is not None:
             file_name="annotated_image.jpg",
             mime="image/jpeg"
         )
+
+    # if we already ran inference, display the results
+    if "img_annotated" in st.session_state:
+        img_annotated = st.session_state["img_annotated"]
+        colony_count = st.session_state["colony_count"]
+    
+        st.image(cv2.cvtColor(img_annotated, cv2.COLOR_BGR2RGB),
+                 caption="Annotated Image", use_column_width=True)
 
         # --- Human-in-the-loop correction ---
         st.subheader("✏️ Review & Correct Colonies")
