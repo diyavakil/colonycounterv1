@@ -3,45 +3,38 @@ from ultralytics import YOLO
 import cv2
 import numpy as np
 from PIL import Image
-from streamlit_image_coordinates import streamlit_image_coordinates # New Import
+from streamlit_image_coordinates import streamlit_image_coordinates # <--- NEW IMPORT
 
-# --- Initialization and Configuration ---
+# --- Streamlit Session State Initialization ---
+# Initialize necessary state variables right at the start
+if 'inference_run' not in st.session_state:
+    st.session_state['inference_run'] = False
+if 'img_annotated' not in st.session_state:
+    st.session_state['img_annotated'] = None
+if 'manual_points' not in st.session_state:
+    st.session_state['manual_points'] = []
+if 'yolo_count' not in st.session_state:
+    st.session_state['yolo_count'] = 0
 
 # custom title/icon
 im = Image.open("App_Icon.jpg") # cute squid
-st.set_page_config(page_title="Colony Counter v1", page_icon=im, layout="wide")
+st.set_page_config(page_title="Colony Counter v1", page_icon=im)
 
 # header
 st.title("🧫 Colony Counter v1")
 
 model = YOLO("weights.pt") # load weights
 
-# --- Session State Management ---
 
-# Initialize session state variables if they don't exist
-if 'yolo_count' not in st.session_state:
-    st.session_state['yolo_count'] = 0
-if 'manual_points' not in st.session_state:
-    st.session_state['manual_points'] = []
-if 'img_annotated' not in st.session_state:
-    st.session_state['img_annotated'] = None
-if 'img_original_cv' not in st.session_state:
-    st.session_state['img_original_cv'] = None
-if 'inference_run' not in st.session_state:
-    st.session_state['inference_run'] = False
-
-
-# Function to handle YOLO inference
-def run_yolo_inference(img):
-    """Runs YOLO inference and initializes the session state with results."""
+# --- Callback Function for Inference Button ---
+def run_inference_callback(img):
+    """Callback function to run YOLO and store initial results in session state."""
     
-    # Reset manual additions
-    st.session_state['manual_points'] = []
-    
+    # Run YOLO and get results
     results = model(img)
     img_annotated = img.copy()
-
-    # Draw YOLO bboxes (green rectangles)
+    
+    # Draw YOLO bboxes
     yolo_bboxes = results[0].boxes.xyxy.cpu().numpy()
     for box in yolo_bboxes:
         x1, y1, x2, y2 = map(int, box)
@@ -50,128 +43,124 @@ def run_yolo_inference(img):
     # Store results in session state
     st.session_state['yolo_count'] = len(yolo_bboxes)
     st.session_state['img_annotated'] = img_annotated
+    st.session_state['manual_points'] = [] # Reset manual points on new inference
     st.session_state['inference_run'] = True
 
-# Function to draw the final image with count and manual points
-def draw_final_image():
+# --- Function to Draw the Final Image ---
+@st.cache_data(show_spinner=False)
+def draw_final_image_with_manual_points(img_base, manual_points, yolo_count):
     """Draws the final annotated image including manual points and count."""
     
-    if st.session_state['img_annotated'] is None:
-        return None
-
-    # Start with the image that has YOLO bboxes
-    final_img = st.session_state['img_annotated'].copy()
+    # Start with the base image that has YOLO bboxes
+    final_img = img_base.copy()
     
     # Draw manual points (red dots)
-    for x, y in st.session_state['manual_points']:
-        # Draw a small red circle
+    for x, y in manual_points:
+        # Draw a small red circle (colony dot)
         cv2.circle(final_img, (x, y), 5, (0, 0, 255), -1) 
     
     # Calculate total count
-    total_count = st.session_state['yolo_count'] + len(st.session_state['manual_points'])
+    total_count = yolo_count + len(manual_points)
     
-    # Add total count in bottom-right corner (Green for YOLO + Manual)
+    # Add total count in bottom-right corner
     text = f"Total Colonies: {total_count}"
     font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 1.5 # Adjusted for better visibility with the component
-    thickness = 3 # Adjusted
+    font_scale = 1.5 
+    thickness = 3 
     
-    # Get text size for background box and positioning
+    # Get text size and position
     text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
     text_x = final_img.shape[1] - text_size[0] - 10 
     text_y = final_img.shape[0] - 10 
     
-    # Optional: Draw a background rectangle for better text visibility
+    # Draw a background rectangle for better text visibility (optional)
     cv2.rectangle(final_img, (text_x - 5, text_y - text_size[1] - 5), 
-                  (final_img.shape[1], final_img.shape[0]), (0, 0, 0), -1) # Black background
+                  (final_img.shape[1], final_img.shape[0]), (0, 0, 0), -1) 
     
-    # Draw text
+    # Draw text (Green)
     cv2.putText(final_img, text, (text_x, text_y), font, font_scale, (0, 255, 0), thickness)
 
-    return final_img
+    # Convert to RGB for Streamlit display
+    return cv2.cvtColor(final_img, cv2.COLOR_BGR2RGB), total_count
 
-# --- Streamlit Layout ---
+
+# --- Main Application Logic ---
 
 # upload img
 uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
 
-# Handle file upload
 if uploaded_file is not None:
-    # Read the file bytes and convert to OpenCV image once per upload
-    if st.session_state['img_original_cv'] is None or uploaded_file.name != st.session_state.get('uploaded_file_name'):
+    # Use a unique key to determine if a new file has been uploaded
+    if 'uploaded_file_id' not in st.session_state or st.session_state['uploaded_file_id'] != uploaded_file.file_id:
+        # This only runs when a new file is uploaded
         file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
         st.session_state['img_original_cv'] = img
-        st.session_state['uploaded_file_name'] = uploaded_file.name # Store name for check
-        
-        # Reset everything for a new image
-        st.session_state['yolo_count'] = 0
-        st.session_state['manual_points'] = []
-        st.session_state['img_annotated'] = None
+        st.session_state['uploaded_file_id'] = uploaded_file.file_id
+        # Reset inference on new image
         st.session_state['inference_run'] = False
         
     img_original = st.session_state['img_original_cv']
-    
+
     st.image(cv2.cvtColor(img_original, cv2.COLOR_BGR2RGB), caption="Original Image", use_column_width=True)
     
-    # Button to run inference
-    if st.button("Run YOLO Inference", key='run_yolo'):
-        run_yolo_inference(img_original)
-        # Rerun to display initial annotated image
-        st.experimental_rerun()
-        
-    # Only show interactive component after inference is run
+    # Button calls the callback function, which updates session state
+    st.button(
+        "Run YOLO Inference", 
+        key='run_yolo', 
+        on_click=run_inference_callback, 
+        args=(img_original,)
+    )
+
+    # --- Interactive Manual Correction Section ---
     if st.session_state['inference_run']:
         
-        st.subheader("Manual Correction 🖱️")
-        st.info("Click the image below to manually add a colony (a red dot will appear). The total count updates automatically.")
+        st.markdown("---")
+        st.subheader("Manual Colony Correction 🖱️")
+        st.info(f"YOLO detected **{st.session_state['yolo_count']}** colonies. Click on the image below to manually add missing colonies.")
 
-        # Create the image to be displayed in the clickable component
-        image_for_click = draw_final_image()
-        image_for_click_rgb = cv2.cvtColor(image_for_click, cv2.COLOR_BGR2RGB)
-        
-        # Display the image using the component to get coordinates
-        # The key is crucial: changing it forces the component to remount and re-render the image
-        clicked_value = streamlit_image_coordinates(
-            image_for_click_rgb, 
-            key=f"image_coordinates_{len(st.session_state['manual_points'])}", # Key updates on manual point addition
-            use_column_width=True
+        # 1. Get the current state of the annotated image
+        final_img_rgb, final_count = draw_final_image_with_manual_points(
+            st.session_state['img_annotated'],
+            st.session_state['manual_points'],
+            st.session_state['yolo_count']
         )
         
-        # Check if a new click happened
+        # 2. Display the image with the custom component and capture clicks
+        # The key must be stable between clicks, only changing when the list of points changes
+        clicked_value = streamlit_image_coordinates(
+            final_img_rgb, 
+            key="image_clicker", # Stable key allows click and coordinate return
+            use_column_width=True
+        )
+
+        # 3. Process the click
         if clicked_value is not None:
             
-            # Extract x, y from the dictionary returned by the component
             x_coord = clicked_value['x']
             y_coord = clicked_value['y']
-            
-            # Add the new point to the list of manual points
             new_point = (x_coord, y_coord)
             
-            # Simple check to avoid adding the exact same point multiple times on a rerun
+            # Check if this point is new (to avoid re-adding on script rerun from a different widget)
             if new_point not in st.session_state['manual_points']:
+                # IMPORTANT: Append to the list in session state
                 st.session_state['manual_points'].append(new_point)
                 
-                # Force a rerun to update the image with the new point and count
+                # IMPORTANT: Since we modified the session state, we must rerun
+                # the app to trigger the redrawing of the image with the new dot.
                 st.experimental_rerun()
                 
         # --- Save and Download ---
-        
-        if st.session_state['img_annotated'] is not None:
-            
-            final_image_to_save = draw_final_image()
+        st.markdown("---")
+        st.success(f"Final Total Colonies: **{final_count}**")
 
-            # Save img to file (Need to save the final image with manual points)
-            save_path = "annotated_streamlit.jpg"
-            cv2.imwrite(save_path, final_image_to_save)
-            
-            st.markdown("---")
-            st.success(f"Final total colonies: **{st.session_state['yolo_count'] + len(st.session_state['manual_points'])}**")
-            
-            with open(save_path, "rb") as file:
-                st.download_button(
-                    label="Download Final Annotated Image",
-                    data=file.read(),
-                    file_name="annotated_image_with_manual_corrections.jpg",
-                    mime="image/jpeg"
-                )
+        # Save image to file with current manual points
+        final_image_to_save = cv2.cvtColor(final_img_rgb, cv2.COLOR_RGB2BGR) # Convert back to BGR for cv2.imwrite
+        save_path = "annotated_streamlit_final.jpg"
+        cv2.imwrite(save_path, final_image_to_save)
+        st.download_button(
+            label="Download Final Annotated Image",
+            data=open(save_path, "rb").read(),
+            file_name="annotated_image_final.jpg",
+            mime="image/jpeg"
+        )
