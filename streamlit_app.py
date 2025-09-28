@@ -176,4 +176,29 @@ if uploaded_file is not None:
             new_point = (x_coord, y_coord)
             
             # Add to the list in session state
-            if new_point not in st.
+            if new_point not in st.session_state['manual_points']:
+                st.session_state['manual_points'].append(new_point)
+                
+                # Force rerun to redraw the image with the new point and count
+                st.experimental_rerun()
+                
+        # --- Final Count and Download ---
+        st.markdown("---")
+        st.success(f"Final Total Colonies: **{final_count}**")
+
+        # Save and Download option
+        save_path = "annotated_streamlit_final.jpg"
+        
+        # Use a button to trigger the save/download *after* the user is finished clicking
+        if st.button("Save and Download Annotated Image", key="download_btn"):
+            # Save the currently displayed image
+            cv2.imwrite(save_path, final_img_bgr) 
+            st.success(f"Annotated image saved as {save_path}")
+            
+            with open(save_path, "rb") as file:
+                st.download_button(
+                    label="Download Annotated Image",
+                    data=file.read(),
+                    file_name="annotated_image_final.jpg",
+                    mime="image/jpeg"
+                )
