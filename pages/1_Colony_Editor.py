@@ -13,10 +13,47 @@ st.markdown("---")
 
 # --- Helper Functions ---
 
-def cv_to_pil_rgb(img_cv):
-    """Converts OpenCV BGR image to PIL RGB image."""
-    return Image.fromarray(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
+# ... (Top imports) ...
 
+# --- Helper Functions ---
+
+def cv_to_pil_rgb(img_cv):
+    """Converts OpenCV BGR or grayscale image to PIL RGB image."""
+    # Ensure the image is correctly converted from OpenCV (BGR) to PIL (RGB)
+    if len(img_cv.shape) == 3 and img_cv.shape[2] == 3:
+        # BGR to RGB conversion for 3-channel image
+        img_rgb = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
+    elif len(img_cv.shape) == 2:
+        # Grayscale image: convert to BGR, then RGB
+        img_bgr = cv2.cvtColor(img_cv, cv2.COLOR_GRAY2BGR)
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    else:
+        # Handle other unexpected formats (shouldn't happen with the current pipeline)
+        raise ValueError("Unsupported image channel format for conversion.")
+        
+    return Image.fromarray(img_rgb)
+
+# FIX: Keep the Base64 function clean and reliable
+def create_initial_drawing_json(img_pil):
+    """Creates a transparent drawing JSON with the image embedded in the background (Base64)."""
+    
+    buffered = BytesIO()
+    
+    # We already ensure the image is RGB in cv_to_pil_rgb, but this is a double-check.
+    if img_pil.mode != 'RGB':
+        img_pil = img_pil.convert('RGB')
+        
+    # The traceback points here (line 25), but this code is technically correct.
+    # The issue was the input PIL object state.
+    img_pil.save(buffered, format="JPEG", quality=85) 
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    
+    return {
+        "objects": [], 
+        "background": f"data:image/jpeg;base64,{img_str}"
+    }
+
+# ... (Rest of the file remains the same) ...
 # FIX: Ensure a default format for Base64, and explicitly convert to RGB
 def create_initial_drawing_json(img_pil):
     """Creates a transparent drawing JSON with the image embedded in the background (Base64)."""
