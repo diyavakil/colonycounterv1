@@ -4,199 +4,221 @@ import cv2
 import numpy as np
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
-import json
-import base64
 from io import BytesIO
 
 # --- Configuration & Initialization ---
-# Load App Icon (assuming App_Icon.jpg is in the same directory)
+
+# Custom title/icon
 try:
-    im = Image.open("App_Icon.jpg")
+    im = Image.open("App_Icon.jpg") 
 except FileNotFoundError:
-    im = None # Use default icon if not found
-st.set_page_config(page_title="Colony Counter v2 (Editable)", page_icon=im if im else "🧫")
+    im = "🧫"
+st.set_page_config(page_title="Colony Counter v2 (Editable)", page_icon=im)
 
 # Header
 st.title("🧫 Colony Counter v2 (Editable)")
 
-# Load YOLO Model (assuming weights.pt is in the same directory)
+# Load weights (assuming weights.pt is in the same directory)
 try:
     model = YOLO("weights.pt")
-except Exception as e:
-    st.error(f"Error loading YOLO model: {e}. Please ensure 'weights.pt' is in the directory.")
-    model = None # Set model to None if loading fails
-
-# Function to convert YOLO boxes to canvas points
-def yolo_boxes_to_canvas_points(boxes, stroke_color):
-    """Converts YOLO bounding boxes to 'point' objects for st_canvas, using the center of the box."""
+except Exception:
+    st.error("Error: Could not load 'weights.pt'. Please ensure it is in the same directory.")
+    st.stop()
+    
+# Function to convert YOLO boxes to a simple JSON list of centers for the canvas
+def yolo_boxes_to_initial_dots_json(boxes, stroke_color, radius=5):
+    """Converts YOLO bounding boxes to 'circle' objects for st_canvas using the center of the box."""
     canvas_objects = []
-    # Use 'radius' as the half-width/height of the bounding box for visualization
-    # We'll approximate with a fixed radius for a 'dot' appearance, as exact box dimensions are complex for a simple dot.
-    point_radius = 5 
     
     for box in boxes:
         x1, y1, x2, y2 = map(float, box)
         center_x = (x1 + x2) / 2
         center_y = (y1 + y2) / 2
         
+        # We store the original box as custom data for redrawing the rectangle later
         canvas_objects.append({
             "type": "circle",
-            "version": "5.3.0",
-            "originX": "center",
-            "originY": "center",
             "left": center_x,
             "top": center_y,
-            "width": point_radius * 2,
-            "height": point_radius * 2,
-            "fill": stroke_color, # Initial points are green
+            "radius": radius,
+            "fill": stroke_color, # Color of the dot
             "stroke": stroke_color,
             "strokeWidth": 1,
-            "rx": point_radius,
-            "ry": point_radius,
-            "radius": point_radius,
-            "scaleX": 1,
-            "scaleY": 1,
-            "angle": 0,
-            "point_type": "yolo_detection" # Custom field to identify original detections
+            "originX": "center",
+            "originY": "center",
+            "point_type": "yolo_detection", # Custom tag for original detections
+            "original_box": [x1, y1, x2, y2] # Store box for redrawing
         })
     
-    # Structure needed for initial_drawing
     return {"objects": canvas_objects, "background": ""}
 
 # --- Image Upload ---
+
+# upload img
 uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
-    # Convert uploaded file to OpenCV img
+    
+    # Read and convert to OpenCV (BGR)
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
     img_cv = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)  
     
-    st.image(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB), caption="Original Image", use_column_width=True)
-    
-    # --- YOLO Inference and Initial Setup ---
-    if model and st.button("Run YOLO Inference"):
-        # Run inference
-        results = model(img_cv, verbose=False)
-        yolo_boxes = results[0].boxes.xyxy.cpu().numpy()
-        initial_colony_count = len(yolo_boxes)
+    # Convert to PIL (RGB) for st_canvas
+    img_pil = Image.fromarray(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
 
-        # Convert the original image to PIL Image for st_canvas background
-        img_rgb = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
-        img_pil = Image.fromarray(img_rgb)
+    st.image(img_pil, caption="Original Image", use_column_width=True)
+
+    # --- YOLO Inference and Initial Setup ---
+
+    if st.button("Run YOLO Inference"):
         
-        # Prepare initial canvas drawing data from YOLO results
-        initial_drawing = yolo_boxes_to_canvas_points(yolo_boxes, "#00FF00") # Green for initial detections
+        # 1. Run YOLO Inference and prepare initial state
+        with st.spinner('Running YOLO inference...'):
+            results = model(img_cv, verbose=False)
+            yolo_boxes = results[0].boxes.xyxy.cpu().numpy()
+            
+        initial_drawing = yolo_boxes_to_initial_dots_json(yolo_boxes, "#00FF00") # Green dots
         
-        # Store state for re-runs
-        st.session_state['initial_colony_count'] = initial_colony_count
+        # Store essential data in session state for editing phase
         st.session_state['initial_drawing_json'] = initial_drawing
         st.session_state['img_pil'] = img_pil
-        
+        st.session_state['img_cv_original'] = img_cv.copy() # Store a clean original copy
+        st.session_state['image_dims'] = img_cv.shape[:2] # (height, width)
+        st.session_state['yolo_boxes'] = yolo_boxes # Keep original boxes for redrawing rectangles
+
+# --- Interactive Editing Canvas (Conditional Block) ---
+
+if 'img_pil' in st.session_state:
+    st.markdown("---")
+    st.subheader("Interactive Colony Editor")
     
-    # --- Interactive Editing Canvas ---
-    if 'img_pil' in st.session_state:
-        st.markdown("---")
-        st.subheader("Interactive Colony Editor")
+    # 2. Setup Drawing Controls
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        draw_mode = st.radio(
+            "Select action:",
+            ("Add Colony", "Remove Colony"),
+            key="draw_mode",
+            help="Click on the image to place a dot. Green dots add to the count, red dots subtract."
+        )
         
-        col1, col2 = st.columns([1, 2])
+        if draw_mode == "Add Colony":
+            stroke_color = "#00FF00"  # Green
+        else: # Remove Colony
+            stroke_color = "#FF0000"  # Red
         
-        with col1:
-            # Drawing Mode Selector
-            draw_mode = st.radio(
-                "Select action:",
-                ("Add Colony", "Remove Colony"),
-                key="draw_mode"
-            )
-            
-            # Configure colors based on mode
-            if draw_mode == "Add Colony":
-                stroke_color = "#00FF00"  # Green for adding
-            else: # Remove Colony
-                stroke_color = "#FF0000"  # Red for removing
+    # 3. Display the Canvas
+    with col2:
+        canvas_result = st_canvas(
+            fill_color="rgba(0, 0, 0, 0.0)", # No fill
+            stroke_width=5, 
+            stroke_color=stroke_color,
+            background_image=st.session_state['img_pil'],
+            initial_drawing=st.session_state['initial_drawing_json'],
+            update_streamlit=True,
+            height=st.session_state['image_dims'][0], # Use original height
+            width=st.session_state['image_dims'][1],  # Use original width
+            drawing_mode="point",
+            point_display_radius=5,
+            display_toolbar=False,
+            key="colony_editor_canvas",
+        )
 
-            st.write(f"Click on the image to {draw_mode.lower()} (Dot color: {stroke_color})")
-            
-        # Display the canvas
-        with col2:
-            canvas_result = st_canvas(
-                fill_color="rgba(0, 0, 0, 0.0)", # No fill
-                stroke_width=5, 
-                stroke_color=stroke_color,
-                background_image=st.session_state['img_pil'],
-                initial_drawing=st.session_state['initial_drawing_json'],
-                update_streamlit=True, # Realtime update
-                height=st.session_state['img_pil'].height,
-                width=st.session_state['img_pil'].width,
-                drawing_mode="point", # Only point drawing is allowed
-                point_display_radius=5, # Small green/red dot
-                display_toolbar=False, # No need for full toolbar
-                key="colony_editor_canvas",
-            )
-
+    # 4. Process Canvas Results and Display Metrics
+    if canvas_result.json_data is not None:
+        all_objects = canvas_result.json_data.get("objects", [])
+        
+        # Recalculate the count
+        # Initial points are ALL points from the YOLO run (all green dots marked as 'yolo_detection')
+        yolo_points_count = sum(1 for obj in all_objects if obj.get('point_type') == 'yolo_detection')
+        
+        # User-added points are new green dots (stroke #00FF00, no 'yolo_detection' tag)
+        added_points_count = sum(1 for obj in all_objects if obj.get('stroke') == '#00FF00' and obj.get('point_type') != 'yolo_detection')
+        
+        # User-removed points are red dots (stroke #FF0000)
+        removed_points_count = sum(1 for obj in all_objects if obj.get('stroke') == '#FF0000')
+        
+        final_count = yolo_points_count + added_points_count - removed_points_count
+        
+        st.markdown("---")
+        st.subheader("Colony Count Summary")
+        
+        colony_count_initial = len(st.session_state.get('yolo_boxes', []))
+        st.metric(label="Initial YOLO Count", value=colony_count_initial)
+        st.metric(label="User Added (Green dots)", value=added_points_count)
+        st.metric(label="User Marked for Removal (Red dots)", value=removed_points_count)
+        st.metric(label="**Final Colony Count**", value=final_count, 
+                  delta=final_count - colony_count_initial, delta_color="normal")
+        
         st.markdown("---")
 
-        # --- Count and Display Results ---
-        if canvas_result.json_data is not None:
-            all_objects = canvas_result.json_data.get("objects", [])
-            
-            # Recalculate the count
-            # 1. Count initial YOLO detections (green points from initial_drawing)
-            yolo_points_count = sum(1 for obj in all_objects if obj.get('point_type') == 'yolo_detection')
-            
-            # 2. Count user-added points (new green points)
-            added_points_count = sum(1 for obj in all_objects if obj.get('stroke') == '#00FF00' and obj.get('point_type') != 'yolo_detection')
-            
-            # 3. Count user-removed points (new red points)
-            removed_points_count = sum(1 for obj in all_objects if obj.get('stroke') == '#FF0000')
-            
-            # The final count is the YOLO detections plus user additions, minus user removals
-            final_count = yolo_points_count + added_points_count - removed_points_count
-            
-            st.metric(label="Initial YOLO Colony Count", value=st.session_state.get('initial_colony_count', 0))
-            st.metric(label="User Added Colonies (Green dots)", value=added_points_count)
-            st.metric(label="User Removed Colonies (Red dots)", value=removed_points_count)
-            st.metric(label="**Final Colony Count**", value=final_count, delta=final_count - st.session_state.get('initial_colony_count', 0), delta_color="normal")
+        # 5. Recreate the final annotated OpenCV image with both boxes and text
+        
+        # Start with a clean copy of the original CV image
+        img_annotated = st.session_state['img_cv_original'].copy()
+        
+        # --- Draw YOLO Bounding Boxes ---
+        # The bounding boxes are drawn using the original box data stored in session state
+        yolo_boxes = st.session_state.get('yolo_boxes', [])
+        for box in yolo_boxes:
+            x1, y1, x2, y2 = map(int, box)
+            # Draw green bounding boxes
+            cv2.rectangle(img_annotated, (x1, y1), (x2, y2), (0, 255, 0), 1)
+        
+        # --- Draw User-Added/Removed Dots (Overlay) ---
+        # The canvas only provides the final image with dots *on top of a blank image*.
+        # To get the dots *on top of the boxes*, we must use OpenCV's drawing functions 
+        # based on the coordinates of the dots from the JSON data.
+        
+        # This is more complex, so a simpler/faster method is to use the canvas image data itself,
+        # but since that lacks the boxes, we'll draw the dots onto the OpenCV image with the boxes.
+        
+        dot_radius = 5 # Matches the point_display_radius in the canvas
+        for obj in all_objects:
+            if obj.get('type') == 'circle':
+                center_x = int(obj['left'])
+                center_y = int(obj['top'])
+                color_hex = obj['stroke']
+                
+                # Convert hex color to BGR for OpenCV
+                hex_to_bgr = lambda h: tuple(int(h[i:i+2], 16) for i in (4, 2, 0)) # BGR order
+                
+                # Only draw new (non-YOLO) points, as the YOLO points are already represented by the boxes
+                # OR draw ALL points (YOLO included) as dots for clarity. Let's draw all user-placed dots.
+                
+                # Only draw the RED (removed) and new GREEN (added) dots to show user modifications.
+                if obj.get('point_type') != 'yolo_detection':
+                    bgr_color = hex_to_bgr(color_hex.lstrip('#'))
+                    # Draw a solid circle (thickness=-1)
+                    cv2.circle(img_annotated, (center_x, center_y), dot_radius, bgr_color, -1)
+                
+        # --- Add count text (bottom-right) ---
+        text = f"Colonies: {final_count}"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 3 
+        thickness = 5
+        
+        img_h, img_w, _ = img_annotated.shape
+
+        text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
+        text_x = img_w - text_size[0] - 10 
+        text_y = img_h - 10 
+        cv2.putText(img_annotated, text, (text_x, text_y), font, font_scale, (0, 255, 0), thickness) # Green text (BGR: 0, 255, 0)
+        
+        # Display the final image
+        st.image(cv2.cvtColor(img_annotated, cv2.COLOR_BGR2RGB), caption="Final Annotated Image (Boxes and Dots)", use_column_width=True)
 
 
-            # --- Download Button for the final annotated image ---
-            if canvas_result.image_data is not None:
-                # Get the final image data from the canvas result
-                img_final_np = canvas_result.image_data
-                
-                # Convert RGBA numpy array to JPEG for download
-                img_final_pil = Image.fromarray(img_final_np.astype('uint8'), 'RGBA').convert('RGB')
-                
-                # Add the count text to the bottom right of the image (re-using PIL for simplicity here)
-                from PIL import ImageDraw, ImageFont
-                draw = ImageDraw.Draw(img_final_pil)
-                text = f"Colonies: {final_count}"
-                
-                # Try to use a common font, or default if not found
-                try:
-                    font = ImageFont.truetype("arial.ttf", size=50) # Common font
-                except IOError:
-                    font = ImageFont.load_default()
-                
-                # Calculate text size and position
-                text_bbox = draw.textbbox((0, 0), text, font=font)
-                text_width = text_bbox[2] - text_bbox[0]
-                text_height = text_bbox[3] - text_bbox[1]
-                
-                margin = 20
-                text_x = img_final_pil.width - text_width - margin
-                text_y = img_final_pil.height - text_height - margin
-                
-                # Draw a simple background for contrast if needed, or just text
-                draw.text((text_x, text_y), text, fill=(0, 255, 0), font=font) # Green text
-
-                # Save to a buffer to create a download button
-                buf = BytesIO()
-                img_final_pil.save(buf, format="JPEG")
-                byte_im = buf.getvalue()
-
-                st.download_button(
-                    label="Download Final Annotated Image",
-                    data=byte_im,
-                    file_name="final_annotated_colonies.jpg",
-                    mime="image/jpeg"
-                )
+        # 6. Save and Download functionality (re-using original logic)
+        save_path = "annotated_streamlit.jpg"
+        cv2.imwrite(save_path, img_annotated)
+        st.success(f"Annotated image saved as {save_path}")
+        
+        with open(save_path, "rb") as file:
+            st.download_button(
+                label="Download Final Annotated Image",
+                data=file.read(),
+                file_name="annotated_image.jpg",
+                mime="image/jpeg"
+            )
