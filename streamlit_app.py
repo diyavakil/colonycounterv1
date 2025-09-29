@@ -19,11 +19,7 @@ st.set_page_config(page_title="Colony Counter v2 (Editable)", page_icon=im)
 st.title("🧫 Colony Counter v2 (Editable)")
 
 # Load weights (assuming weights.pt is in the same directory)
-try:
-    model = YOLO("weights.pt")
-except Exception:
-    st.error("Error: Could not load 'weights.pt'. Please ensure it is in the same directory.")
-    st.stop()
+model = YOLO("weights.pt")
     
 # Function to convert YOLO boxes to a simple JSON list of centers for the canvas
 def yolo_boxes_to_initial_dots_json(boxes, stroke_color, radius=5):
