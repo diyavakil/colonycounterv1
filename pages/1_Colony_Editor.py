@@ -1,10 +1,10 @@
 import streamlit as st
-import cv2 # <--- REQUIRED IMPORT
+import cv2
 import numpy as np
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
-from io import BytesIO # <--- REQUIRED IMPORT
-import base64 # <--- REQUIRED IMPORT
+from io import BytesIO
+import base64
 
 # --- Configuration & Initialization ---
 st.set_page_config(page_title="Colony Editor")
@@ -17,23 +17,24 @@ def cv_to_pil_rgb(img_cv):
     """Converts OpenCV BGR image to PIL RGB image."""
     return Image.fromarray(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
 
-# NOTE: The base64 helper was inside the function in the last version, 
-# but it's cleaner and safer to define it outside or use a separate helper function.
-
+# FIX: Ensure a default format for Base64, and explicitly convert to RGB
 def create_initial_drawing_json(img_pil):
     """Creates a transparent drawing JSON with the image embedded in the background (Base64)."""
-    # Use JPEG for smaller size and faster loading in the browser, if possible
+    
     buffered = BytesIO()
-    # Ensure image is RGB before saving to avoid PIL warnings
+    
+    # Ensure image is RGB before saving to avoid PIL warnings/errors
     if img_pil.mode != 'RGB':
         img_pil = img_pil.convert('RGB')
         
+    # Use JPEG for smaller size and faster loading in the browser, if possible
+    # This line was where the error traceback pointed, ensuring it is correct here
     img_pil.save(buffered, format="JPEG", quality=85) 
     img_str = base64.b64encode(buffered.getvalue()).decode()
     
     return {
         "objects": [], 
-        "background": f"data:image/jpeg;base64,{img_str}" # Use JPEG mime type
+        "background": f"data:image/jpeg;base64,{img_str}"
     }
 
 def hex_to_bgr(h):
@@ -73,18 +74,33 @@ img_pil_base = cv_to_pil_rgb(img_cv_base)
 st.sidebar.markdown(f"**YOLO Initial Count:** {initial_count}")
 
 # 2. Setup Canvas Controls
+
+# FIX: Initialize draw_mode and stroke_color outside the columns to guarantee existence
+# Initialize state variables
+if 'draw_mode' not in st.session_state:
+    st.session_state['draw_mode'] = "Add Colony"
+
+draw_mode = st.session_state['draw_mode']
+stroke_color = "#00FF00" if draw_mode == "Add Colony" else "#FF0000"
+
+
 st.subheader(f"Editing: {selected_id}")
 
 col1, col2 = st.columns([1, 2])
 
 with col1:
+    # Use a fresh st.radio call to update the session state variable
+    # This ensures draw_mode is always defined before we use it to calculate stroke_color
     draw_mode = st.radio(
         "Select action:",
         ("Add Colony", "Remove Colony"),
-        key="draw_mode",
+        key="draw_mode", # Uses the session state key
     )
     
+    # Recalculate stroke_color AFTER the radio button has been interacted with
     stroke_color = "#00FF00" if draw_mode == "Add Colony" else "#FF0000"
+    
+    # This line now runs safely because stroke_color is guaranteed to exist
     st.info(f"Dot color: {stroke_color}")
     
 # 3. Display the Canvas
@@ -96,7 +112,6 @@ with col2:
         fill_color="rgba(0, 0, 0, 0.0)",
         stroke_width=5, 
         stroke_color=stroke_color,
-        # Background is handled by the initial_drawing JSON (Base64)
         initial_drawing=initial_drawing_json, 
         update_streamlit=True,
         height=img_cv_base.shape[0], 
@@ -104,15 +119,14 @@ with col2:
         drawing_mode="point",
         point_display_radius=5,
         display_toolbar=False,
-        # IMPORTANT: Key must change per image ID to reset the canvas drawing state
         key=f"editor_canvas_{selected_id}", 
     )
 
+# ... (Rest of the code is unchanged and should work fine now) ...
 # 4. Process Canvas Results and Display Metrics
 if canvas_result.json_data is not None:
     all_objects = canvas_result.json_data.get("objects", [])
     
-    # Points are ONLY those added by the user in this session
     added_points_count = sum(1 for obj in all_objects if obj.get('stroke') == '#00FF00')
     removed_points_count = sum(1 for obj in all_objects if obj.get('stroke') == '#FF0000')
     
@@ -130,7 +144,7 @@ if canvas_result.json_data is not None:
     st.markdown("---")
 
     # 5. Recreate the final annotated OpenCV image with dots and text
-    img_final = img_cv_base.copy() # Start with YOLO boxes already drawn
+    img_final = img_cv_base.copy() 
 
     # Draw User-Added/Removed Dots (Overlay)
     dot_radius = 5
