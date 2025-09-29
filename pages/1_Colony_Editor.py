@@ -1,9 +1,10 @@
 import streamlit as st
-import cv2
+import cv2 # <--- REQUIRED IMPORT
 import numpy as np
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
-from io import BytesIO
+from io import BytesIO # <--- REQUIRED IMPORT
+import base64 # <--- REQUIRED IMPORT
 
 # --- Configuration & Initialization ---
 st.set_page_config(page_title="Colony Editor")
@@ -16,22 +17,27 @@ def cv_to_pil_rgb(img_cv):
     """Converts OpenCV BGR image to PIL RGB image."""
     return Image.fromarray(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
 
+# NOTE: The base64 helper was inside the function in the last version, 
+# but it's cleaner and safer to define it outside or use a separate helper function.
+
 def create_initial_drawing_json(img_pil):
-    """Creates a transparent drawing JSON with the image embedded in the background."""
-    # We do NOT use the YOLO dots here, as the base image already has the boxes drawn.
-    # The user starts with a clean slate for adding/removing dots.
+    """Creates a transparent drawing JSON with the image embedded in the background (Base64)."""
+    # Use JPEG for smaller size and faster loading in the browser, if possible
     buffered = BytesIO()
-    img_pil.save(buffered, format="PNG")
+    # Ensure image is RGB before saving to avoid PIL warnings
+    if img_pil.mode != 'RGB':
+        img_pil = img_pil.convert('RGB')
+        
+    img_pil.save(buffered, format="JPEG", quality=85) 
     img_str = base64.b64encode(buffered.getvalue()).decode()
     
     return {
         "objects": [], 
-        "background": f"data:image/png;base64,{img_str}"
+        "background": f"data:image/jpeg;base64,{img_str}" # Use JPEG mime type
     }
 
 def hex_to_bgr(h):
     """Converts a hex color code to a BGR tuple for OpenCV."""
-    # h = "#RRGGBB"
     return tuple(int(h[i:i+2], 16) for i in (4, 2, 0)) # BGR order
 
 
@@ -39,7 +45,6 @@ def hex_to_bgr(h):
 
 if 'processed_data' not in st.session_state or not st.session_state['processed_data']:
     st.warning("No processed images found. Please upload an image and run inference first.")
-    # Provide a link back to the main page
     if st.button("Go to Upload Page"):
         st.switch_page("streamlit_app.py")
     st.stop()
@@ -99,7 +104,8 @@ with col2:
         drawing_mode="point",
         point_display_radius=5,
         display_toolbar=False,
-        key=f"editor_canvas_{selected_id}", # Key must change per image ID
+        # IMPORTANT: Key must change per image ID to reset the canvas drawing state
+        key=f"editor_canvas_{selected_id}", 
     )
 
 # 4. Process Canvas Results and Display Metrics
@@ -110,7 +116,6 @@ if canvas_result.json_data is not None:
     added_points_count = sum(1 for obj in all_objects if obj.get('stroke') == '#00FF00')
     removed_points_count = sum(1 for obj in all_objects if obj.get('stroke') == '#FF0000')
     
-    # Calculate final count
     final_count = initial_count + added_points_count - removed_points_count
     
     st.markdown("---")
@@ -149,7 +154,6 @@ if canvas_result.json_data is not None:
     text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
     text_x = img_w - text_size[0] - 10 
     text_y = img_h - 10 
-    # Draw text in Green
     cv2.putText(img_final, text, (text_x, text_y), font, font_scale, (0, 255, 0), thickness)
     
     # Display the final image
@@ -157,7 +161,6 @@ if canvas_result.json_data is not None:
 
 
     # 6. Download functionality
-    # Save the final image to a buffer
     is_success, buffer = cv2.imencode(".jpg", img_final)
     if is_success:
         download_data = BytesIO(buffer)
